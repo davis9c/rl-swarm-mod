@@ -131,7 +131,6 @@ else
 fi
 
 if [ "$CONNECT_TO_TESTNET" = true ]; then
-    echo_step "2" "Menghubungkan ke Testnet..."
     # Run modal_login server.
     echo "Please login to create an Ethereum Server Wallet"
     cd modal-login
@@ -212,17 +211,8 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
     fi
 fi
 
-# Tambahkan fungsi untuk menampilkan tahapan
-echo_step() {
-    echo -e "\n${BLUE_TEXT}[Tahap $1/${TOTAL_STEPS}] $2${RESET_TEXT}"
-}
+echo_green ">> Getting requirements..."
 
-TOTAL_STEPS=8
-
-# Inisialisasi tahapan
-echo_step "1" "Memulai RL-Swarm..."
-
-echo_step "3" "Memeriksa dan menginstal dependensi..."
 pip install --upgrade pip
 if [ -n "$CPU_ONLY" ] || ! command -v nvidia-smi &> /dev/null; then
     # CPU-only mode or no NVIDIA GPU found
@@ -246,9 +236,8 @@ else
     fi
 fi
 
-echo_step "4" "Menyiapkan konfigurasi model..."
+echo_green ">> Done!"
 
-echo_step "5" "Konfigurasi Hugging Face..."
 HF_TOKEN=${HF_TOKEN:-""}
 if [ "$BYPASS" = true ]; then
     HUGGINGFACE_ACCESS_TOKEN="None"
@@ -256,19 +245,21 @@ elif [ -n "${HF_TOKEN}" ]; then
     HUGGINGFACE_ACCESS_TOKEN=${HF_TOKEN}
 else
     echo -en $GREEN_TEXT
-    read -p ">> Apakah Anda ingin menyimpan model yang dilatih ke Hugging Face Hub? [y/N] " yn
+    read -p ">> Would you like to push models you train in the RL swarm to the Hugging Face Hub? [y/N] " yn
     echo -en $RESET_TEXT
-    yn=${yn:-N} # Default ke "N" jika user menekan Enter
+    yn=${yn:-N} # Default to "N" if the user presses Enter
     case $yn in
-        [Yy]*) read -p "Masukkan token akses Hugging Face Anda: " HUGGINGFACE_ACCESS_TOKEN ;;
+        [Yy]*) read -p "Enter your Hugging Face access token: " HUGGINGFACE_ACCESS_TOKEN ;;
         [Nn]*) HUGGINGFACE_ACCESS_TOKEN="None" ;;
-        *) echo ">>> Tidak ada jawaban, jadi TIDAK ada model yang akan disimpan ke Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
+        *) echo ">>> No answer was given, so NO models will be pushed to Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
     esac
 fi
 
-echo_step "6" "Menyiapkan lingkungan training..."
+echo_green ">> Good luck in the swarm!"
+echo_blue ">> Post about rl-swarm on X/twitter! --> https://tinyurl.com/swarmtweet"
+echo_blue ">> And remember to star the repo on GitHub! --> https://github.com/gensyn-ai/rl-swarm"
+
 if [ -n "$ORG_ID" ]; then
-    echo_step "7" "Memulai proses training..."
     python -m hivemind_exp.gsm8k.train_single_gpu \
         --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
         --identity_path "$IDENTITY_PATH" \
@@ -287,9 +278,4 @@ else
         --game "$GAME"
 fi
 
-echo_step "8" "Proses training sedang berjalan..."
-wait  # Tetap menjalankan script sampai Ctrl+C
-
-echo_green ">> Selamat berswarm!"
-echo_blue ">> Bagikan tentang rl-swarm di X/twitter! --> https://tinyurl.com/swarmtweet"
-echo_blue ">> Dan jangan lupa beri bintang di GitHub! --> https://github.com/gensyn-ai/rl-swarm"
+wait  # Keep script running until Ctrl+C
