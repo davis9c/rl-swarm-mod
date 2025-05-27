@@ -1,3 +1,6 @@
+# Program ini adalah implementasi runner untuk training model menggunakan GRPO (Gradient-based Reinforcement Policy Optimization)
+
+# Import library yang diperlukan
 # ruff: noqa: E402
 import logging
 from dataclasses import dataclass, field
@@ -7,6 +10,7 @@ from typing import Callable, Tuple
 import torch
 import os
 
+# Cek apakah Unsloth (library optimisasi) diaktifkan
 UNSLOTH_ENABLED = (os.getenv('RL_SWARM_UNSLOTH', 'True') == 'True')
 if UNSLOTH_ENABLED:
     try:
@@ -40,28 +44,31 @@ logger = logging.getLogger(__name__)
 
 MAX_SEQ_LENGTH = 4096
 
+# Kelas untuk menyimpan argument-argument GRPO
 @dataclass
 class GRPOArguments:
-    # Hivemind arguments
-    initial_peers: list[str] = field(default_factory=list)
-    public_maddr: str | None = None
-    host_maddr: str | None = None
-    identity_path: str | None = None
-    max_rounds: int = 100
+    # Argument untuk Hivemind (distributed training)
+    initial_peers: list[str] = field(default_factory=list)  # Daftar peer awal untuk jaringan
+    public_maddr: str | None = None  # Alamat publik untuk peer
+    host_maddr: str | None = None    # Alamat host untuk peer
+    identity_path: str | None = None  # Path untuk identitas peer
+    max_rounds: int = 100            # Jumlah maksimum ronde training
 
-    # Model arguments
-    dataset_id_or_path: str = "openai/gsm8k"
-    dataset_splits: str = "train"
-    tokenizer_name_or_path: str | None = None
-    number_of_data_samples: int = 50000
-    public_maddr: str | None = None
-    game: str = "gsm8k"
+    # Argument untuk model
+    dataset_id_or_path: str = "openai/gsm8k"      # ID atau path dataset
+    dataset_splits: str = "train"                  # Split dataset yang digunakan
+    tokenizer_name_or_path: str | None = None      # Nama atau path tokenizer
+    number_of_data_samples: int = 50000            # Jumlah sampel data
+    public_maddr: str | None = None                # Alamat publik (duplikat)
+    game: str = "gsm8k"                           # Nama game/task
 
-    # Hugging Face Hub arguments
-    hf_token: str | None = None
+    # Argument untuk Hugging Face Hub
+    hf_token: str | None = None                    # Token untuk akses HuggingFace
 
 
+# Kelas utama untuk menjalankan training GRPO
 class GRPORunner:
+    # Method untuk mendapatkan model
     def get_model(self, grpo_args: GRPOArguments, training_args: GRPOConfig, model_name: str):
         model_init_kwargs = training_args.model_init_kwargs or {}
         # Disable caching if gradient checkpointing is enabled (not supported)
@@ -113,6 +120,7 @@ class GRPORunner:
                 **model_init_kwargs,
             )
 
+    # Method untuk mendapatkan nama tokenizer
     def get_tokenizer_name(self, model_args: ModelConfig, script_args: GRPOArguments):
         if script_args.tokenizer_name_or_path:
             return script_args.tokenizer_name_or_path
@@ -120,6 +128,7 @@ class GRPORunner:
             return model_args.model_name_or_path
         raise ValueError("unable to resolve tokenizer name")
 
+    # Method untuk mengatur parameter DHT (Distributed Hash Table)
     def _dht_kwargs(self, grpo_args):
         kwargs = {}
         initial_peers = grpo_args.initial_peers
@@ -137,11 +146,13 @@ class GRPORunner:
 
         return kwargs
 
+    # Method untuk mendapatkan nama unik berbasis animal untuk peer
     def _get_animal_name(self, peer_id):
         animal_name = get_name_from_peer_id(peer_id)
         logger.info(f"🐱 Hello 🐈 [{animal_name}] 🦮 [{peer_id}]!")
         return animal_name
 
+    # Method untuk menyiapkan DHT
     def setup_dht(self, grpo_args):
         initial_peers = grpo_args.initial_peers
         dht = hivemind.DHT(start=True, startup_timeout=30, **self._dht_kwargs(grpo_args))
@@ -154,6 +165,7 @@ class GRPORunner:
         self.name = self._get_animal_name(str(dht.peer_id))
         return dht
 
+    # Method utama untuk menjalankan training
     def run(
         self,
         model_args: ModelConfig,
@@ -162,24 +174,18 @@ class GRPORunner:
         initial_datasets_fn: Callable[[], Tuple[Dataset, Dataset]],
         trainer_factory_fn: Callable = HivemindGRPOTrainer,
     ):
-        #########################
-        # Log parameters
-        #########################
+        # Log parameter-parameter training
         logger.debug(f"Model parameters {model_args}")
         logger.debug(f"Training/evaluation parameters {training_args}")
 
-        ############################
-        # Log into HF hub if wanted
-        ############################
+        # Login ke HuggingFace Hub jika diperlukan
         if grpo_args.hf_token not in [None, "None"]:
             training_args.push_to_hub_token = grpo_args.hf_token
             login(token=training_args.push_to_hub_token, add_to_git_credential=True)
         else:
             training_args.push_to_hub_token = None
 
-        ################
-        # Load tokenizer
-        ################
+        # Inisialisasi tokenizer
         tokenizer = AutoTokenizer.from_pretrained(
             self.get_tokenizer_name(model_args, grpo_args),
             revision=model_args.model_revision,
@@ -190,33 +196,29 @@ class GRPORunner:
 
         tokenizer._tokenizer.enable_truncation(MAX_SEQ_LENGTH)
 
-        #########################
-        # Create DHT via Hivemind
-        #########################
+        # Membuat jaringan DHT untuk distributed training
         dht = self.setup_dht(grpo_args)
 
-        #####################################
-        # Load datasets, prepare, and format
-        #####################################
+        # Memuat dan mempersiapkan dataset
         train_dataset, test_dataset = initial_datasets_fn()
 
-        #########################
-        # Instantiate DPO trainer
-        #########################
+        # Inisialisasi model dan trainer
         model_name_or_path = model_args.model_name_or_path
         assert model_name_or_path
         model = self.get_model(grpo_args, training_args, model_name_or_path)
 
+        # Konfigurasi node dalam jaringan
         initial_peers = grpo_args.initial_peers
         if initial_peers:
             node = HivemindNode(model_name_or_path, str(dht.peer_id))
         else:
             node = HivemindNode.coordinator(model_name_or_path, str(dht.peer_id))
 
-        # TODO: Extract this and generalize.
+        # Menyiapkan data untuk training
         stage_data = gsm8k_stage_data(dht, node, train_dataset, test_dataset)
         stage_data.max_rounds = grpo_args.max_rounds
 
+        # Membuat instance trainer
         trainer = trainer_factory_fn(
             dht=dht,
             node=node,
@@ -227,9 +229,7 @@ class GRPORunner:
             log_tag=self.name,
         )
 
-        ###############
-        # Training loop
-        ###############
+        # Memulai proses training
         logger.info(
             f"Starting training {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} for {training_args.num_train_epochs} epochs"
         )
