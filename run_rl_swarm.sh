@@ -2,39 +2,42 @@
 
 set -euo pipefail
 
-# Argumen umum
+# General arguments
 ROOT=$PWD
 
-# Ekspor variabel lingkungan yang diperlukan
+export PUB_MULTI_ADDRS
+export PEER_MULTI_ADDRS
+export HOST_MULTI_ADDRS
 export IDENTITY_PATH
 export CONNECT_TO_TESTNET
 export ORG_ID
-export HF_HUB_DOWNLOAD_TIMEOUT=120  # 2 menit
+export HF_HUB_DOWNLOAD_TIMEOUT=120  # 2 minutes
 
-# Periksa apakah alamat multi publik diberikan, jika tidak gunakan default
+# Check if public multi-address is given else set to default
 DEFAULT_PUB_MULTI_ADDRS=""
 PUB_MULTI_ADDRS=${PUB_MULTI_ADDRS:-$DEFAULT_PUB_MULTI_ADDRS}
 
-# Periksa apakah alamat multi peer diberikan, jika tidak gunakan default
-DEFAULT_PEER_MULTI_ADDRS="" # node koordinator gensyn
+# Check if peer multi-address is given else set to default
+DEFAULT_PEER_MULTI_ADDRS="" # gensyn coordinator node
+#DEFAULT_PEER_MULTI_ADDRS="" # gensyn coordinator node
 PEER_MULTI_ADDRS=${PEER_MULTI_ADDRS:-$DEFAULT_PEER_MULTI_ADDRS}
 
-# Periksa apakah alamat multi host diberikan, jika tidak gunakan default
+# Check if host multi-address is given else set to default
 DEFAULT_HOST_MULTI_ADDRS="/ip4/0.0.0.0/tcp/38331"
 HOST_MULTI_ADDRS=${HOST_MULTI_ADDRS:-$DEFAULT_HOST_MULTI_ADDRS}
 
-# Jalur ke kunci privat RSA. Jika jalur ini tidak ada, pasangan kunci baru akan dibuat.
-# Hapus file ini jika Anda menginginkan PeerID baru.
+# Path to an RSA private key. If this path does not exist, a new key pair will be created.
+# Remove this file if you want a new PeerID.
 DEFAULT_IDENTITY_PATH="$ROOT"/swarm.pem
 IDENTITY_PATH=${IDENTITY_PATH:-$DEFAULT_IDENTITY_PATH}
 
 SMALL_SWARM_CONTRACT="0x69C6e1D608ec64885E7b185d39b04B491a71768C"
 BIG_SWARM_CONTRACT="0x6947c6E196a48B77eFa9331EC1E3e45f3Ee5Fd58"
 
-# Akan mengabaikan GPU yang terlihat jika disetel.
+# Will ignore any visible GPUs if set.
 CPU_ONLY=${CPU_ONLY:-""}
 
-# Disetel jika berhasil diparsing dari modal-login/temp-data/userData.json.
+# Set if successfully parsed from modal-login/temp-data/userData.json.
 ORG_ID=${ORG_ID:-""}
 
 GREEN_TEXT="\033[32m"
@@ -51,14 +54,14 @@ echo_blue() {
 
 ROOT_DIR="$(cd $(dirname ${BASH_SOURCE[0]}) && pwd)"
 
-# Fungsi untuk membersihkan proses server saat keluar
+# Function to clean up the server process upon exit
 cleanup() {
-    echo_green ">> Mematikan pelatih..."
+    echo_green ">> Shutting down trainer..."
 
-    # Hapus kredensial modal jika ada
+    # Remove modal credentials if they exist
     rm -r $ROOT_DIR/modal-login/temp-data/*.json 2> /dev/null || true
 
-    # Bunuh semua proses yang menjadi milik grup proses skrip ini
+    # Kill all processes belonging to this script's process group
     kill -- -$$ || true
 
     exit 0
@@ -66,14 +69,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-echo_step() {
-    echo -e "\n${BLUE_TEXT}[Tahap $1/${TOTAL_STEPS}] $2${RESET_TEXT}"
-}
-
-TOTAL_STEPS=7
-
-# Menampilkan banner
-echo_step "1" "Memulai RL-Swarm"
 echo -e "\033[38;5;224m"
 cat << "EOF"
     ██████  ██            ███████ ██     ██  █████  ██████  ███    ███
@@ -82,10 +77,9 @@ cat << "EOF"
     ██   ██ ██                 ██ ██ ███ ██ ██   ██ ██   ██ ██  ██  ██
     ██   ██ ███████       ███████  ███ ███  ██   ██ ██   ██ ██      ██
 
-    Dari Gensyn
+    From Gensyn
 
 EOF
-
 BYPASS=true
 if [ "$BYPASS" = true ]; then
     CONNECT_TO_TESTNET=true
@@ -94,25 +88,25 @@ if [ "$BYPASS" = true ]; then
 else
     while true; do
         echo -en $GREEN_TEXT
-        read -p ">> Apakah Anda ingin terhubung ke Testnet? [Y/n] " yn
+        read -p ">> Would you like to connect to the Testnet? [Y/n] " yn
         echo -en $RESET_TEXT
-        yn=${yn:-Y}  # Default ke "Y" jika user menekan Enter
+        yn=${yn:-Y}  # Default to "Y" if the user presses Enter
         case $yn in
             [Yy]*)  CONNECT_TO_TESTNET=true && break ;;
             [Nn]*)  CONNECT_TO_TESTNET=false && break ;;
-            *)  echo ">>> Mohon jawab ya atau tidak." ;;
+            *)  echo ">>> Please answer yes or no." ;;
         esac
     done
 
     while true; do
         echo -en $GREEN_TEXT
-        read -p ">> Pilih swarm yang ingin diikuti (Matematika Dasar (A) atau Matematika Lanjut (B))? [A/b] " ab
+        read -p ">> Which swarm would you like to join (Math (A) or Math Hard (B))? [A/b] " ab
         echo -en $RESET_TEXT
-        ab=${ab:-A}  # Default ke "A" jika user menekan Enter
+        ab=${ab:-A}  # Default to "A" if the user presses Enter
         case $ab in
             [Aa*)  USE_BIG_SWARM=false && break ;;
             [Bb]*)  USE_BIG_SWARM=true && break ;;
-            *)  echo ">>> Mohon pilih A atau B." ;;
+            *)  echo ">>> Please answer A or B." ;;
         esac
     done
 fi
@@ -126,25 +120,26 @@ if [ "$BYPASS" = true ]; then
 else
     while true; do
         echo -en $GREEN_TEXT
-        read -p ">> Berapa parameter yang diinginkan (dalam milyar)? [0.5, 1.5, 7, 32, 72] " pc
+        read -p ">> How many parameters (in billions)? [0.5, 1.5, 7, 32, 72] " pc
         echo -en $RESET_TEXT
-        pc=${pc:-0.5}  # Default ke "0.5" jika user menekan Enter
+        pc=${pc:-0.5}  # Default to "0.5" if the user presses Enter
         case $pc in
             0.5 | 1.5 | 7 | 32 | 72) PARAM_B=$pc && break ;;
-            *)  echo ">>> Mohon pilih dari [0.5, 1.5, 7, 32, 72]." ;;
+            *)  echo ">>> Please answer in [0.5, 1.5, 7, 32, 72]." ;;
         esac
     done
 fi
 
 if [ "$CONNECT_TO_TESTNET" = true ]; then
-    # Jalankan server modal_login.
-    echo "Silakan masuk untuk membuat Dompet Server Ethereum"
+    echo_step "2" "Menghubungkan ke Testnet..."
+    # Run modal_login server.
+    echo "Please login to create an Ethereum Server Wallet"
     cd modal-login
-    # Periksa apakah perintah yarn ada; jika tidak, instal Yarn.
+    # Check if the yarn command exists; if not, install Yarn.
 
-    # Pengaturan Node.js + NVM
+    # Node.js + NVM setup
     if ! command -v node > /dev/null 2>&1; then
-        echo "Node.js tidak ditemukan. Menginstal NVM dan Node.js versi terbaru..."
+        echo "Node.js not found. Installing NVM and latest Node.js..."
         export NVM_DIR="$HOME/.nvm"
         if [ ! -d "$NVM_DIR" ]; then
             curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
@@ -153,102 +148,148 @@ if [ "$CONNECT_TO_TESTNET" = true ]; then
         [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
         nvm install node
     else
-        echo "Node.js sudah terinstal: $(node -v)"
+        echo "Node.js is already installed: $(node -v)"
     fi
 
     if ! command -v yarn > /dev/null 2>&1; then
-        # Deteksi Ubuntu (termasuk WSL Ubuntu) dan instal Yarn sesuai
+        # Detect Ubuntu (including WSL Ubuntu) and install Yarn accordingly
         if grep -qi "ubuntu" /etc/os-release 2> /dev/null || uname -r | grep -qi "microsoft"; then
-            echo "Mendeteksi Ubuntu atau WSL Ubuntu. Menginstal Yarn melalui apt..."
+            echo "Detected Ubuntu or WSL Ubuntu. Installing Yarn via apt..."
             curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
             echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
             sudo apt update && sudo apt install -y yarn
         else
-            echo "Yarn tidak ditemukan. Menginstal Yarn secara global dengan npm (tanpa pengeditan profil)…"
-            # Ini mendarat di $NVM_DIR/versions/node/<ver>/bin yang sudah ada di PATH
+            echo "Yarn not found. Installing Yarn globally with npm (no profile edits)…"
+            # This lands in $NVM_DIR/versions/node/<ver>/bin which is already on PATH
             npm install -g --silent yarn
         fi
     fi
     yarn install
-    yarn dev > /dev/null 2>&1 & # Jalankan di latar belakang dan sembunyikan output
+    yarn dev > /dev/null 2>&1 & # Run in background and suppress output
 
-    SERVER_PID=$!  # Simpan ID proses
-    echo "Proses server yang dimulai: $SERVER_PID"
+    SERVER_PID=$!  # Store the process ID
+    echo "Started server process: $SERVER_PID"
     sleep 5
 
-    # Coba buka URL di browser default
+    # Try to open the URL in the default browser
     if open http://localhost:3000 2> /dev/null; then
-        echo_green ">> Berhasil membuka http://localhost:3000 di browser default Anda."
+        echo_green ">> Successfully opened http://localhost:3000 in your default browser."
     else
-        echo ">> Gagal membuka http://localhost:3000. Silakan buka secara manual."
+        echo ">> Failed to open http://localhost:3000. Please open it manually."
     fi
 
     cd ..
 
-    echo_green ">> Menunggu modal userData.json dibuat..."
+    echo_green ">> Waiting for modal userData.json to be created..."
     while [ ! -f "modal-login/temp-data/userData.json" ]; do
-        sleep 5  # Tunggu 5 detik sebelum memeriksa lagi
+        sleep 5  # Wait for 5 seconds before checking again
     done
-    echo "Ditemukan userData.json. Melanjutkan..."
+    echo "Found userData.json. Proceeding..."
 
     ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
-    echo "ORG_ID Anda disetel ke: $ORG_ID"
+    echo "Your ORG_ID is set to: $ORG_ID"
 
-    # Tunggu sampai kunci API diaktifkan oleh klien
-    echo "Menunggu kunci API diaktifkan..."
+    # Wait until the API key is activated by the client
+    echo "Waiting for API key to become activated..."
     while true; do
         STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
         if [[ "$STATUS" == "activated" ]]; then
-            echo "Kunci API diaktifkan! Melanjutkan..."
+            echo "API key is activated! Proceeding..."
             break
         else
-            echo "Menunggu kunci API diaktifkan..."
+            echo "Waiting for API key to be activated..."
             sleep 5
         fi
     done
 
     ENV_FILE="$ROOT"/modal-login/.env
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        # versi macOS
+        # macOS version
         sed -i '' "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
     else
-        # versi Linux
+        # Linux version
         sed -i "3s/.*/SMART_CONTRACT_ADDRESS=$SWARM_CONTRACT/" "$ENV_FILE"
     fi
 fi
 
-echo_step "2" "Memeriksa koneksi ke Testnet"
-echo -e "\033[38;5;224m"
-cat << "EOF"
-    ██████  ██            ███████ ██     ██  █████  ██████  ███    ███
-    ██   ██ ██            ██      ██     ██ ██   ██ ██   ██ ████  ████
-    ██████  ██      █████ ███████ ██  █  ██ ███████ ██████  ██ ████ ██
-    ██   ██ ██                 ██ ██ ███ ██ ██   ██ ██   ██ ██  ██  ██
-    ██   ██ ███████       ███████  ███ ███  ██   ██ ██   ██ ██      ██
+# Tambahkan fungsi untuk menampilkan tahapan
+echo_step() {
+    echo -e "\n${BLUE_TEXT}[Tahap $1/${TOTAL_STEPS}] $2${RESET_TEXT}"
+}
 
-    Dari Gensyn
+TOTAL_STEPS=8
 
-EOF
+# Inisialisasi tahapan
+echo_step "1" "Memulai RL-Swarm..."
 
-# Proses login dan setup
-echo_step "2" "Memeriksa koneksi ke Testnet"
-# ...existing code for testnet connection...
+echo_step "3" "Memeriksa dan menginstal dependensi..."
+pip install --upgrade pip
+if [ -n "$CPU_ONLY" ] || ! command -v nvidia-smi &> /dev/null; then
+    # CPU-only mode or no NVIDIA GPU found
+    pip install -r "$ROOT"/requirements-cpu.txt
+    CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml" # TODO: Fix naming.
+    GAME="gsm8k"
+else
+    # NVIDIA GPU found
+    pip install -r "$ROOT"/requirements-gpu.txt
+    pip install flash-attn --no-build-isolation
 
-echo_step "3" "Memilih jenis Swarm"
-# ...existing code for swarm selection...
+    case "$PARAM_B" in
+        32 | 72) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-bnb-4bit-deepseek-r1.yaml" && break ;;
+        0.5 | 1.5 | 7) CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-${PARAM_B}b-deepseek-r1.yaml" && break ;;
+        *)  echo ">>> Please answer in [0.5, 1.5, 7, 32, 72]." ;;
+    esac
+    if [ "$USE_BIG_SWARM" = true ]; then
+        GAME="dapo"
+    else
+        GAME="gsm8k"
+    fi
+fi
 
-echo_step "4" "Mengatur parameter training"
-# ...existing code for parameter selection...
+echo_step "4" "Menyiapkan konfigurasi model..."
 
-echo_step "5" "Menginstall dependensi yang diperlukan"
-echo ">>> Menginstall paket Python yang diperlukan..."
-# ...existing code for requirements installation...
+echo_step "5" "Konfigurasi Hugging Face..."
+HF_TOKEN=${HF_TOKEN:-""}
+if [ "$BYPASS" = true ]; then
+    HUGGINGFACE_ACCESS_TOKEN="None"
+elif [ -n "${HF_TOKEN}" ]; then
+    HUGGINGFACE_ACCESS_TOKEN=${HF_TOKEN}
+else
+    echo -en $GREEN_TEXT
+    read -p ">> Apakah Anda ingin menyimpan model yang dilatih ke Hugging Face Hub? [y/N] " yn
+    echo -en $RESET_TEXT
+    yn=${yn:-N} # Default ke "N" jika user menekan Enter
+    case $yn in
+        [Yy]*) read -p "Masukkan token akses Hugging Face Anda: " HUGGINGFACE_ACCESS_TOKEN ;;
+        [Nn]*) HUGGINGFACE_ACCESS_TOKEN="None" ;;
+        *) echo ">>> Tidak ada jawaban, jadi TIDAK ada model yang akan disimpan ke Hugging Face Hub" && HUGGINGFACE_ACCESS_TOKEN="None" ;;
+    esac
+fi
 
-echo_step "6" "Konfigurasi Hugging Face"
-# ...existing code for HF token setup...
+echo_step "6" "Menyiapkan lingkungan training..."
+if [ -n "$ORG_ID" ]; then
+    echo_step "7" "Memulai proses training..."
+    python -m hivemind_exp.gsm8k.train_single_gpu \
+        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+        --identity_path "$IDENTITY_PATH" \
+        --modal_org_id "$ORG_ID" \
+        --contract_address "$SWARM_CONTRACT" \
+        --config "$CONFIG_PATH" \
+        --game "$GAME"
+else
+    python -m hivemind_exp.gsm8k.train_single_gpu \
+        --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
+        --identity_path "$IDENTITY_PATH" \
+        --public_maddr "$PUB_MULTI_ADDRS" \
+        --initial_peers "$PEER_MULTI_ADDRS" \
+        --host_maddr "$HOST_MULTI_ADDRS" \
+        --config "$CONFIG_PATH" \
+        --game "$GAME"
+fi
 
-echo_step "7" "Memulai proses training"
-echo ">>> Memulai proses training model..."
-# ...existing code for training...
-
+echo_step "8" "Proses training sedang berjalan..."
 wait  # Tetap menjalankan script sampai Ctrl+C
+
+echo_green ">> Selamat berswarm!"
+echo_blue ">> Bagikan tentang rl-swarm di X/twitter! --> https://tinyurl.com/swarmtweet"
+echo_blue ">> Dan jangan lupa beri bintang di GitHub! --> https://github.com/gensyn-ai/rl-swarm"
